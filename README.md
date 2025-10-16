@@ -35,6 +35,47 @@ Ensure the following environment variables are set in your `.env` file:
 
 The signing keys are used for validating the webhook signature. Refer to [this guide](https://help.zitadel.com/how-to-validate-zitadel-actions-v2-signature-with-node.js) for details on generating and validating signing keys.
 
+## Create the Targets
+
+To create a target, use the “CreateTarget” request from our [Postman collection](https://zitadel.com/docs/apis/introduction#postman-collection-beta), or check our API docs, sending the following body:
+
+```json
+{
+   "name": "ListUsers Webhook",
+   "restCall": {
+       "interruptOnError": false
+   },
+   "endpoint": "https://<HOSTING_DOMAIN>/action/list-users",
+   "timeout": "10s"
+}
+```
+
+Copy the signing key returned, this must be saved as the `LISTUSERS_SIGNING_KEY` environment variable.
+The response will look like this:
+
+```json
+{
+   "id": "342320645008366333",
+   "creationDate": "2025-10-15T13:30:04.462592Z",
+   "signingKey": "<SIGNING_KEY>"
+}
+```
+
+Repeat the same process for the SetSession Webhook, using type "restWebhook":
+
+```json
+{
+   "name": "SetSession Webhook",
+   "restWebhook": {
+       "interruptOnError": false
+   },
+   "endpoint": "https://<HOSTING_DOMAIN>/action/set-session",
+   "timeout": "10s"
+}
+```
+
+Copy the signing key returned, this must be saved as the `SETSESSION_SIGNING_KEY` environment variable.
+
 ## Legacy Database
 
 The legacy database is mocked in this project. Replace the `LEGACY_DB` object in `server.js` with actual calls to your legacy database.
