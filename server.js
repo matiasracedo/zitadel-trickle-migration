@@ -147,6 +147,38 @@ async function setUserPassword(userId, pw) {
   await zFetch(`/v2/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/**
+ * Retrieves and checks user metadata for migration status.
+ * @param {string} userId - The ID of the user.
+ * @returns {Promise<{ migrated: boolean, metadata: Array }>} - Migration status and metadata.
+ */
+async function getUserMigrationMetadata(userId) {
+  const metadataSearchBody = {
+    filters: [
+      {
+        keyFilter: {
+          key: "migratedFromLegacy",
+          method: "TEXT_FILTER_METHOD_EQUALS"
+        }
+      }
+    ]
+  };
+
+  const metadataSearchResponse = await zFetch(`/v2/users/${userId}/metadata/search`, {
+    method: 'POST',
+    body: JSON.stringify(metadataSearchBody)
+  });
+
+  const metadata = metadataSearchResponse.metadata || [];
+  const migratedMetadata = metadata.find(m => m.key === 'migratedFromLegacy');
+  const migratedValue = migratedMetadata ? Buffer.from(migratedMetadata.value, 'base64').toString('utf8') : null;
+
+  return {
+    migrated: migratedValue === 'true',
+    metadata
+  };
+}
+
 // --- Mock "Legacy" directory (replace with real calls later) ---
 const LEGACY_DB = {
   "legacy-user@gmail.com": {
@@ -253,28 +285,10 @@ app.post('/action/set-session', async (req, res) => {
     const userId = search?.session?.factors?.user?.id;
     const legacyLoginName = search?.session?.factors?.user?.loginName;
 
-    const metadataSearchBody = {
-      filters: [
-        {
-          keyFilter: {
-            key: "migratedFromLegacy",
-            method: "TEXT_FILTER_METHOD_EQUALS"
-          }
-        }
-      ]
-    };
-
-    const metadataSearchResponse = await zFetch(`/v2/users/${userId}/metadata/search`, {
-      method: 'POST',
-      body: JSON.stringify(metadataSearchBody)
-    });
-
-    const metadata = metadataSearchResponse.metadata || [];
-    const migratedMetadata = metadata.find(m => m.key === 'migratedFromLegacy');
-    const migratedValue = migratedMetadata ? Buffer.from(migratedMetadata.value, 'base64').toString('utf8') : null;
+    const { migrated, metadata } = await getUserMigrationMetadata(userId);
 
     // If user already migrated or no migration metadata, skip password set
-    if (migratedValue === 'true') {
+    if (migrated) {
       console.info('User already migrated, skipping password set for user:', userId);
       return res.json(response || {});
     }
@@ -308,6 +322,51 @@ app.post('/action/set-session', async (req, res) => {
   } catch (e) {
     console.error('set-session action error:', e);
     return res.status(200).json(req.body?.response || {});
+  }
+});
+
+// --- Response Action (restWebhook): SetPassword ---
+app.post('/action/set-password', async (req, res) => {
+  // Validate signature first
+  const SETPASSWORD_SIGNING_KEY = process.env.SETPASSWORD_SIGNING_KEY;
+  if (!validateZitadelSignature(req, res, SETPASSWORD_SIGNING_KEY)) {
+    return; // Response already sent by validation function
+  }
+
+  try {
+    const { request, response } = req.body || {};
+    const userId = request?.userId;
+
+    if (!userId) {
+      console.error('Missing userId in SetPassword request');
+      return res.status(400).json({ error: 'Missing userId in request' });
+    }
+
+    const { migrated, metadata } = await getUserMigrationMetadata(userId);
+
+    // If user already migrated or no migration metadata, skip password set
+    if (migrated) {
+      console.info('User already migrated, skipping password set for user:', userId);
+      return res.json(response || {});
+    }
+    if (metadata.length === 0) {
+      console.info('No migration metadata found, skipping password set for user:', userId);
+      return res.json(response || {});
+    }
+
+    // If SetPassword response is successful, update metadata flag
+    console.info('SetPassword action successful, updating metadata for user:', userId);
+    await zFetch(`/v2/users/${userId}/metadata`, {
+      method: 'POST',
+      body: JSON.stringify({
+        metadata: [{ key: "migratedFromLegacy", value: Buffer.from("true").toString("base64") }]
+      })
+    });
+
+    return res.json(response || {});
+  } catch (e) {
+    console.error('SetPassword action error:', e);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

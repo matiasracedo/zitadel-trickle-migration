@@ -23,6 +23,15 @@ This endpoint is triggered when the Zitadel hosted login page attempts to set ve
 - Verifies the user’s password against the legacy database.
 - If the password matches, updates the user’s password in Zitadel and marks the migration as complete.
 
+### 3. `/action/set-password`
+**Method:** POST
+
+This endpoint is triggered when the Zitadel hosted login page calls the `/zitadel.user.v2.UserService/SetPassword` method to set a user password during a password reset. This is in case a user forgets their old password during the migration. It performs the following:
+
+- Validates the webhook signature using the `SETPASSWORD_SIGNING_KEY`.
+- Retrieves and checks the user’s metadata to determine if the user has already been migrated.
+- If the user has not been fully migrated, updates the metadata flag to mark the migration as complete.
+
 ## Environment Variables
 
 Ensure the following environment variables are set in your `.env` file:
@@ -32,6 +41,7 @@ Ensure the following environment variables are set in your `.env` file:
 - `ZITADEL_ORG_ID`: The organization ID in Zitadel where migrated users will be created.
 - `LISTUSERS_SIGNING_KEY`: The signing key for the `/action/list-users` endpoint.
 - `SETSESSION_SIGNING_KEY`: The signing key for the `/action/set-session` endpoint.
+- `SETPASSWORD_SIGNING_KEY`: The signing key for the `/action/set-password` endpoint.
 
 The signing keys are used for validating the webhook signature. Refer to [this guide](https://help.zitadel.com/how-to-validate-zitadel-actions-v2-signature-with-node.js) for details on generating and validating signing keys.
 
@@ -75,6 +85,21 @@ Repeat the same process for the SetSession Webhook, using type "restWebhook":
 ```
 
 Copy the signing key returned, this must be saved as the `SETSESSION_SIGNING_KEY` environment variable.
+
+To create a target for the SetPassword Webhook, send the following body:
+
+```json
+{
+   "name": "SetPassword Webhook",
+   "restWebhook": {
+       "interruptOnError": false
+   },
+   "endpoint": "https://<HOSTING_DOMAIN>/action/set-password",
+   "timeout": "10s"
+}
+```
+
+Copy the signing key returned, this must be saved as the `SETPASSWORD_SIGNING_KEY` environment variable.
 
 ## Legacy Database
 
